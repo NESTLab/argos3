@@ -790,10 +790,10 @@ namespace argos {
    void CQTOpenGLWidget::mousePressEvent(QMouseEvent* pc_event) {
       /*
        * Mouse press without shift
-       * Either pure press, or press + CTRL
+       * Either pure press, or press + CTRL or press + ALT
        */
       if(! (pc_event->modifiers() & Qt::ShiftModifier)) {
-         if(! (pc_event->modifiers() & Qt::AltModifier)) {
+         if(! (pc_event->modifiers() & Qt::AltModifier & Qt::ControlModifier)) {
             m_bMouseGrabbed = true;
             m_cMouseGrabPos = pc_event->pos();
          }
@@ -816,11 +816,11 @@ namespace argos {
 
    void CQTOpenGLWidget::mouseReleaseEvent(QMouseEvent* pc_event) {
       /*
-       * Mouse grabbed, selected entity, CTRL pressed
+       * Mouse grabbed, selected entity, CTRL/Alt pressed
        */
       if(m_bMouseGrabbed &&
          m_sSelectionInfo.IsSelected &&
-         (pc_event->modifiers() & Qt::ControlModifier)) {
+         (pc_event->modifiers() & (Qt::ControlModifier | Qt::AltModifier))) {
          /* Treat selected entity as an embodied entity */
          CEmbodiedEntity* pcEntity = dynamic_cast<CEmbodiedEntity*>(m_sSelectionInfo.Entity);
          if(pcEntity == NULL) {
@@ -850,9 +850,23 @@ namespace argos {
          CVector3 cNewPos;
          if(cMouseRay.Intersects(cXYPlane, cNewPos)) {
             CVector3 cOldPos(pcEntity->GetOriginAnchor().Position);
-            if(pcEntity->MoveTo(cNewPos, pcEntity->GetOriginAnchor().Orientation)) {
-               m_cUserFunctions.EntityMoved(pcEntity->GetRootEntity(), cOldPos, cNewPos);
+            /*
+             * Mouse press with CTRL only : Move entity
+             */
+            if((pc_event->modifiers() & Qt::ControlModifier) && 
+               !(pc_event->modifiers() & Qt::AltModifier)) {
+               if(pcEntity->MoveTo(cNewPos, pcEntity->GetOriginAnchor().Orientation)) {
+                  m_cUserFunctions.EntityMoved(pcEntity->GetRootEntity(), cOldPos, cNewPos);
+               }
+            } 
+            /*
+             * Mouse press with ALT only : trigger goal set
+             */    
+            else if(!(pc_event->modifiers() & Qt::ControlModifier) && 
+               (pc_event->modifiers() & Qt::AltModifier)) {
+                  m_cUserFunctions.GoalSet(pcEntity->GetRootEntity(), cNewPos);
             }
+
             /* Entity moved, redraw */
             update();
          }

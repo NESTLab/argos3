@@ -180,6 +180,14 @@ namespace argos {
                                const CVector3& c_new_pos) {}
 
       /**
+       * Called every time a goal is set.
+       * @param c_entity The entity.
+       * @param c_goal_pos The position of goal.
+       */
+      virtual void GoalSet(CEntity& c_entity,
+                               const CVector3& c_goal_pos) {}
+
+      /**
        * Called every time an entity is rotated.
        * @param c_entity The rotated entity.
        * @param c_old_orientation The old orientation of the entity.

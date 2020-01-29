@@ -85,18 +85,6 @@ namespace argos {
          void Init(TConfigurationNode& t_tree);
       };
 
-      /**
-       * Data arelated to robot selection
-       */
-      struct SSelectionInfo {
-         bool IsSelected;         // true when an entity is selected
-         CEntity* Entity;         // the selected entity
-
-         SSelectionInfo() :
-            IsSelected(false),
-            Entity(NULL) {}
-      };
-
    public:
 
       /**
@@ -373,7 +361,7 @@ namespace argos {
       /** Whether to invert the mouse motion */
       bool m_bInvertMouse;
       /** Data on entity selection */
-      SSelectionInfo m_sSelectionInfo;
+      std::vector<CEntity*> m_vecSelectionInfo;
 
       /** Reference to the simulator state */
       CSimulator& m_cSimulator;

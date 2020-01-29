@@ -164,10 +164,10 @@ namespace argos {
          glPopMatrix();
       }
       /* Draw the selected object, if necessary */
-      if(m_sSelectionInfo.IsSelected) {
+      for (auto &&selected : m_vecSelectionInfo) {
          glPushMatrix();
-         CallEntityOperation<CQTOpenGLOperationDrawSelected, CQTOpenGLWidget, void>(*this, *m_sSelectionInfo.Entity);
-         glPopMatrix();
+         CallEntityOperation<CQTOpenGLOperationDrawSelected, CQTOpenGLWidget, void>(*this, *selected);
+         glPopMatrix();   
       }
       /* Draw in world */
       glPushMatrix();
@@ -295,47 +295,50 @@ namespace argos {
    /****************************************/
 
    CEntity* CQTOpenGLWidget::GetSelectedEntity() {
-      return (m_sSelectionInfo.IsSelected ?
-              m_sSelectionInfo.Entity :
-              NULL);
+      /* Return the last selected entity */
+      return (m_vecSelectionInfo.size() > 0 ?
+         m_vecSelectionInfo.back():
+         NULL);
    }
 
    /****************************************/
    /****************************************/
 
    void CQTOpenGLWidget::SelectEntity(CEntity& c_entity) {
-      /* Check whether an entity had previously been selected */
-      if(m_sSelectionInfo.IsSelected) {
-         /* An entity had previously been selected */
-         /* Is that entity already selected? */
-         if(m_sSelectionInfo.Entity == &c_entity) return;
-         /* Deselect the previous one */
-         emit EntityDeselected(m_sSelectionInfo.Entity);
-         m_cUserFunctions.EntityDeselected(
-            *m_sSelectionInfo.Entity);
+      bool bIsAlreadySelected = false;
+      for(auto it = m_vecSelectionInfo.begin();
+         it != m_vecSelectionInfo.end(); ++it) {
+         /* Is the entity already selected? */
+         if(*it == &c_entity) {
+            bIsAlreadySelected = true;
+            continue; // Do not deselect
+         };
+         /* Deselect all the previous ones */
+         emit EntityDeselected(*it);
+         m_cUserFunctions.EntityDeselected(**it);
+         m_vecSelectionInfo.erase(it--);
       }
-      else {
-         /* No entity had previously been selected */
-         m_sSelectionInfo.IsSelected = true;
+      if(!bIsAlreadySelected) {
+         /* Add the new selected entity */
+         m_vecSelectionInfo.push_back(&c_entity);
+         emit EntitySelected(&c_entity);
+         m_cUserFunctions.EntitySelected(c_entity);
+         update();
       }
-      /* Select the new entity */
-      m_sSelectionInfo.Entity = &c_entity;
-      emit EntitySelected(&c_entity);
-      m_cUserFunctions.EntitySelected(c_entity);
-      update();
    }
 
    /****************************************/
    /****************************************/
 
    void CQTOpenGLWidget::DeselectEntity() {
-      /* If no entity was selected, nothing to do */
-      if(!m_sSelectionInfo.IsSelected) return;
-      /* Deselect the entity */
-      emit EntityDeselected(m_sSelectionInfo.Entity);
+      /* size = 0: No entities were selected, nothing to do */
+      /* size > 1: cannot determine which to deselect, nothing is done */
+      if(m_vecSelectionInfo.size() != 1) return;
+      /* Deselect the entity only if one was selected */
+      emit EntityDeselected(m_vecSelectionInfo.at(0));
       m_cUserFunctions.EntityDeselected(
-         *m_sSelectionInfo.Entity);
-      m_sSelectionInfo.IsSelected = false;
+         *m_vecSelectionInfo.at(0));
+      m_vecSelectionInfo.pop_back();
       update();
    }
 
@@ -790,7 +793,7 @@ namespace argos {
    void CQTOpenGLWidget::mousePressEvent(QMouseEvent* pc_event) {
       /*
        * Mouse press without shift
-       * Either pure press, or press + CTRL or press + ALT
+       * Either pure press, or press + ctrl or press + alt
        */
       if(! (pc_event->modifiers() & Qt::ShiftModifier)) {
          if(! (pc_event->modifiers() & Qt::AltModifier & Qt::ControlModifier)) {
@@ -806,8 +809,44 @@ namespace argos {
        */
       else {
          m_bMouseGrabbed = false;
-         SelectInScene(pc_event->pos().x(),
-                       pc_event->pos().y());
+         /*
+          * Mouse press with shift + ctrl (Select multiple entities)
+          */
+         if(pc_event->modifiers() & Qt::ControlModifier) { 
+            CRay3 cRay = RayFromWindowCoord(pc_event->pos().x(),
+                        pc_event->pos().y());
+            SEmbodiedEntityIntersectionItem sItem;
+            if(GetClosestEmbodiedEntityIntersectedByRay(sItem, cRay)) {
+               CEntity* pcEntity = &sItem.IntersectedEntity->GetRootEntity();
+               bool bIsAlreadySelected = false;
+               for(auto it = m_vecSelectionInfo.begin();
+                  it != m_vecSelectionInfo.end(); ++it) {
+                  /* Is the entity already selected? */
+                  if(*it == pcEntity) {
+                     bIsAlreadySelected = true;
+                     /* Deselect the entity */
+                     emit EntityDeselected(*it);
+                     m_cUserFunctions.EntityDeselected(**it);
+                     m_vecSelectionInfo.erase(it--);
+                     break;
+                  }
+               }
+               if(!bIsAlreadySelected) {
+                  /* Add the new entity to the selected entities */
+                  m_vecSelectionInfo.push_back(pcEntity);
+                  emit EntitySelected(pcEntity);
+                  m_cUserFunctions.EntitySelected(*pcEntity);   
+               }
+               update();
+            }
+         }
+         /*
+          * Mouse press with shift without ctrl (Select 1 entity)
+          */
+         else {
+            SelectInScene(pc_event->pos().x(),
+                        pc_event->pos().y());
+         }
       }
    }
 
@@ -816,16 +855,16 @@ namespace argos {
 
    void CQTOpenGLWidget::mouseReleaseEvent(QMouseEvent* pc_event) {
       /*
-       * Mouse grabbed, selected entity, CTRL/Alt pressed
+       * Mouse grabbed, 1 selected entity, ctrl/alt pressed
        */
       if(m_bMouseGrabbed &&
-         m_sSelectionInfo.IsSelected &&
+         m_vecSelectionInfo.size() == 1 &&
          (pc_event->modifiers() & (Qt::ControlModifier | Qt::AltModifier))) {
          /* Treat selected entity as an embodied entity */
-         CEmbodiedEntity* pcEntity = dynamic_cast<CEmbodiedEntity*>(m_sSelectionInfo.Entity);
+         CEmbodiedEntity* pcEntity = dynamic_cast<CEmbodiedEntity*>(m_vecSelectionInfo.at(0));
          if(pcEntity == NULL) {
             /* Treat selected entity as a composable entity with an embodied component */
-            CComposableEntity* pcCompEntity = dynamic_cast<CComposableEntity*>(m_sSelectionInfo.Entity);
+            CComposableEntity* pcCompEntity = dynamic_cast<CComposableEntity*>(m_vecSelectionInfo.at(0));
             if(pcCompEntity != NULL && pcCompEntity->HasComponent("body")) {
                pcEntity = &pcCompEntity->GetComponent<CEmbodiedEntity>("body");
             }
@@ -851,7 +890,7 @@ namespace argos {
          if(cMouseRay.Intersects(cXYPlane, cNewPos)) {
             CVector3 cOldPos(pcEntity->GetOriginAnchor().Position);
             /*
-             * Mouse press with CTRL only : Move entity
+             * Mouse press with ctrl only : Move entity
              */
             if((pc_event->modifiers() & Qt::ControlModifier) && 
                !(pc_event->modifiers() & Qt::AltModifier)) {
@@ -860,7 +899,7 @@ namespace argos {
                }
             } 
             /*
-             * Mouse press with ALT only : trigger goal set
+             * Mouse press with alt only : trigger goal set
              */    
             else if(!(pc_event->modifiers() & Qt::ControlModifier) && 
                (pc_event->modifiers() & Qt::AltModifier)) {
@@ -921,12 +960,12 @@ namespace argos {
    /****************************************/
 
    void CQTOpenGLWidget::wheelEvent(QWheelEvent *pc_event) {
-      if(m_sSelectionInfo.IsSelected && (pc_event->modifiers() & Qt::ControlModifier)) {
+      if(m_vecSelectionInfo.size() == 1 && (pc_event->modifiers() & Qt::ControlModifier)) {
          /* Treat selected entity as an embodied entity */
-         CEmbodiedEntity* pcEntity = dynamic_cast<CEmbodiedEntity*>(m_sSelectionInfo.Entity);
+         CEmbodiedEntity* pcEntity = dynamic_cast<CEmbodiedEntity*>(m_vecSelectionInfo.at(0));
          if(pcEntity == NULL) {
             /* Treat selected entity as a composable entity with an embodied component */
-            CComposableEntity* pcCompEntity = dynamic_cast<CComposableEntity*>(m_sSelectionInfo.Entity);
+            CComposableEntity* pcCompEntity = dynamic_cast<CComposableEntity*>(m_vecSelectionInfo.at(0));
             if(pcCompEntity != NULL && pcCompEntity->HasComponent("body")) {
                pcEntity = &pcCompEntity->GetComponent<CEmbodiedEntity>("body");
             }
